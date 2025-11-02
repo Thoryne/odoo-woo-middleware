@@ -127,23 +127,36 @@ app.get("/debug/env", (req, res) => {
 });
 
 // --- DEBUG: tester l'auth Odoo sans passer par Woo
+import axios from "axios"; // assure-toi d'avoir cet import en haut du fichier
+
 app.get("/debug/odoo-auth", async (req, res) => {
   try {
-    const result = await odooExecuteKw(
-      "res.partner",
-      "search_read",
-      [[["id", ">", 0]]],
-      ["id"],
-      { limit: 1 }
-    );
-    return res.status(200).json({ ok: true, sample: result });
+    const base = (process.env.ODOO_URL || "").replace(/\/+$/, "");
+    if (!base) {
+      return res.status(400).json({ ok: false, err: "Missing ODOO_URL" });
+    }
+    const url = `${base}/web/session/authenticate`;
+    const body = {
+      jsonrpc: "2.0",
+      method: "call",
+      params: {
+        db: process.env.ODOO_DB || "",
+        login: process.env.ODOO_LOGIN || "",
+        // IMPORTANT : ici on teste directement avec la clé API comme "password"
+        password: process.env.ODOO_API_KEY || ""
+      },
+      id: 1
+    };
+    const r = await axios.post(url, body, { headers: { "Content-Type": "application/json" } });
+    const ok = !!r.data?.result?.uid;
+    return res.status(ok ? 200 : 500).json({ ok, raw: r.data });
   } catch (e) {
-    console.error("ODOO_AUTH_FAIL >>>", e?.response?.data || e.message);
-    return res
-      .status(500)
-      .json({ ok: false, err: e?.response?.data || e.message });
+    const err = e?.response?.data || e?.message || "unknown";
+    console.error("ODOO_AUTH_FAIL >>>", err);
+    return res.status(500).json({ ok: false, err });
   }
 });
+
 
 const PORT = process.env.PORT || 3000;
 initDb().then(() => app.listen(PORT, () => console.log(`Listening on :${PORT}`)));
